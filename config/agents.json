@@ -1,0 +1,9 @@
+{
+    "agents": [
+        {
+            "pos": [0, 0, 30],
+            "model": "Sedan",
+            "MAX_POV_SPEED": 8.94
+        }
+    ]
+}

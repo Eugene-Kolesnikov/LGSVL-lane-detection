@@ -1,0 +1,6 @@
+{
+    "SIMULATOR_HOST": "127.0.0.1",
+    "SIMULATOR_PORT": 8181,
+    "BRIDGE_HOST": "127.0.0.1",
+    "BRIDGE_PORT": 9090
+}
