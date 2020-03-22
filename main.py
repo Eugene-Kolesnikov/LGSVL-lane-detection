@@ -5,6 +5,7 @@ from simulation import Simulation
 from controller import Controller
 
 
+# Read and parse a configuration file
 def read_config(path):
     try:
         with open(path, 'rt') as f:
@@ -16,7 +17,12 @@ def read_config(path):
 
 def main(args):
     config = read_config(args.config[0])
-    print(config)
+
+    sim = Simulation(config.get("connection"))
+    sim.set_env(config.get("environment"))
+    sim.set_agents(config.get("agents"))
+
+    sim.start()
     """
     simulation_config = read_config(SIMULATION_CONFIG)
     sim = Simulation(simulation_config)
