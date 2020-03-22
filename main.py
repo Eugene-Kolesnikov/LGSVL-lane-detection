@@ -1,5 +1,5 @@
 import json
-import logging
+
 import argparse
 from simulation import Simulation
 from controller import Controller
@@ -14,14 +14,23 @@ def read_config(path):
     except Exception: 
         raise
 
+#TODO:
+# - Add output file to cmd
+# - Add log file to cmd
+# - Add controller support
 
-def main(args):
+def main(args, log):
     config = read_config(args.config[0])
+    log.info(f"Parsed the config file: {config}")
 
-    sim = Simulation(config.get("connection"))
+    sim = Simulation(config.get("global"), config.get("connection"), log, args.no_controller, args.synchronous)
+    log.info("Created a simulation, connected to the server")
     sim.set_env(config.get("environment"))
+    log.info("Created an environment")
     sim.set_agents(config.get("agents"))
+    log.info("Created agents")
 
+    log.info("Starting the simulation...")
     sim.start()
     """
     simulation_config = read_config(SIMULATION_CONFIG)
@@ -58,10 +67,55 @@ def parse_args():
     
     return parser.parse_args()
 
+def launch_logger():
+    import logging
+    import queue
+    from logging.handlers import QueueHandler, QueueListener
+    from datetime import datetime
+
+    # Get queue
+    q = queue.Queue(-1)
+
+    # Formatter
+    formatter = logging.Formatter('%(asctime)s - %(threadName)s - %(levelname)-8s: %(message)s')
+
+    # create file handler which logs even debug messages
+    fh = logging.FileHandler(f"{datetime.now()}.log")
+    fh.setFormatter(formatter)
+    fh.setLevel(logging.DEBUG)
+    
+    # create console handler with a higher log level
+    ch = logging.StreamHandler()
+    ch.setFormatter(formatter)
+    ch.setLevel(logging.INFO)
+    
+    # Start queue listener using the stream handler above
+    ql = QueueListener(q, fh, ch, respect_handler_level=True)
+    ql.start()
+
+    # Create log and set handler to queue handle
+    log = logging.getLogger('simulation')
+    log.setLevel(logging.DEBUG) # Log level = DEBUG
+    qh = QueueHandler(q)
+    log.addHandler(qh)
+
+    log.info('Initialized the logger')
+
+    return log, ql
+
 if __name__ == "__main__":
     try:
-        args = parse_args()
-        main(args)
+        log, ql = launch_logger()
     except Exception as e:
-        print("Exception occured:", e)
-        raise
+        print("Was not able to launch a logger...")
+        print(e)
+        quit()
+    
+    try:
+        args = parse_args()
+        log.info(f"Parsed the console arguments: {args}")
+        main(args, log)
+        ql.stop()
+    except Exception as e:
+        log.error(e)
+        ql.stop()

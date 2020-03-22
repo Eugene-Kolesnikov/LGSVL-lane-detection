@@ -1,0 +1,23 @@
+{
+    "global": {
+        "execution_time": 30
+    },
+    "connection": {
+        "SIMULATOR_HOST": "127.0.0.1",
+        "SIMULATOR_PORT": 8181,
+        "BRIDGE_HOST": "127.0.0.1",
+        "BRIDGE_PORT": 9090
+    },
+    "environment": {
+        "map": "SingleLaneRoad",
+        "car": "Lincoln2017MKZ (Apollo 5.0)",
+        "time": 12
+    },
+    "agents": [
+        {
+            "pos": [0, 0, 30],
+            "model": "Sedan",
+            "MAX_POV_SPEED": 8.94
+        }
+    ]
+}
