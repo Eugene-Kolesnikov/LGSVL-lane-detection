@@ -7,7 +7,7 @@ import time
 from PIL import ImageFont, ImageDraw, Image
 
 class Simulation:
-    def __init__(self, global_config, connection_config, log, no_control, sync):
+    def __init__(self, global_config, connection_config, log, no_control, sync, output):
         self.log = log
         self.parameters = global_config
         self.config = connection_config
@@ -26,10 +26,12 @@ class Simulation:
         self.log.debug("Initialized the simulation")
         self.vehicle = None
 
+        self.start_time = None
+
         self.path = "/tmp"
 
         self.video = None
-        self.video_file = "outpy.avi"
+        self.video_file = output
 
     def set_env(self, env):
         # Set the map
@@ -91,14 +93,16 @@ class Simulation:
         
         self.log.debug("Starting the simulation loop...")
         curTime = 0
+        self.start_time = time.time()
         while True:
             self.log.debug(f"Running the simulation for {_EXECUTION_TIME_STEP_} seconds")
             self.sim.run(_EXECUTION_TIME_STEP_)
             curTime += _EXECUTION_TIME_STEP_
+            self.log.info(f"Current execution time: {curTime}")
             if curTime >= _TOTAL_TIME_:
                 self.log.info("Current execution time reached the limit. Quitting the simulation.")
+                self.log.info(f"The simulation took {time.time() - self.start_time} seconds")
                 break
-            self.log.info(f"Current execution time: {curTime}")
             self.log.debug("Loading sensors from the server")
             sensors = self._get_sensors()
             self.log.debug("Loaded sensors from the server")
@@ -117,9 +121,12 @@ class Simulation:
         if self.video:
             self.log.debug("Closing the video feed")
             self.video.release()
-        raise Exception("{} collided with {}: {}".format(
+        self.log.error("{} collided with {}: {}".format(
             agent1, agent2, contact
         ))
+        if self.start_time:
+            self.log.info(f"The simulation took {time.time() - self.start_time} seconds")
+        raise Exception("Stop simulation")
 
     def _get_sensors(self):
         sensors = {}

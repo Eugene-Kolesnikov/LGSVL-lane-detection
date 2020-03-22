@@ -1,6 +1,6 @@
 {
     "global": {
-        "execution_time": 30
+        "execution_time": 10
     },
     "connection": {
         "SIMULATOR_HOST": "127.0.0.1",
