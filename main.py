@@ -1,10 +1,8 @@
 import json
+import logging
+import argparse
 from simulation import Simulation
 from controller import Controller
-
-SIMULATION_CONFIG = "config/simulation.json"
-ENVIRONMENT_CONFIG = "config/environment.json"
-AGENTS_CONFIG = "config/agents.json"
 
 
 def read_config(path):
@@ -12,15 +10,14 @@ def read_config(path):
         with open(path, 'rt') as f:
             config = json.load(f)
             return config
-    except Exception:
+    except Exception: 
         raise
 
 
-def main():
-    global SIMULATION_CONFIG
-    global ENVIRONMENT_CONFIG
-    global AGENTS_CONFIG
-
+def main(args):
+    config = read_config(args.config[0])
+    print(config)
+    """
     simulation_config = read_config(SIMULATION_CONFIG)
     sim = Simulation(simulation_config)
 
@@ -39,11 +36,26 @@ def main():
 
     # Blocking operation
     sim.start()
+    """
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='Process some integers.')
+    
+    parser.add_argument('config', metavar='config', type=str, nargs=1,
+                    help='path to the configuration file')
+    
+    parser.add_argument('--no-controller', dest='no_controller', action='store_true',
+                    help='run the simulation without the automatic controller')
+    
+    parser.add_argument('--synchronous', dest='synchronous', action='store_true',
+                    help='run the simulation in sync with the controller')
+    
+    return parser.parse_args()
 
 if __name__ == "__main__":
     try:
-        main()
+        args = parse_args()
+        main(args)
     except Exception as e:
         print("Exception occured:", e)
         raise
