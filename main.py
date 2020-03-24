@@ -1,8 +1,9 @@
 import json
-
+import multiprocessing as mp
 import argparse
 from simulation import Simulation
-from controller import Controller
+from controller import ControllerProcess
+from logger import launch_logger_listener, create_logger
 
 
 # Read and parse a configuration file
@@ -14,10 +15,8 @@ def read_config(path):
     except Exception: 
         raise
 
-#TODO:
-# - Add controller support
 
-def main(args, log):
+def main(args, log, log_q):
     config = read_config(args.config)
     log.info(f"Parsed the config file: {config}")
 
@@ -28,28 +27,25 @@ def main(args, log):
     sim.set_agents(config.get("agents"))
     log.info("Created agents")
 
+    if not args.no_controller:
+        control_queue = mp.Queue(1)
+        log.debug("Initialized the control queue")
+        control_event = mp.Event()
+        log.debug("Initialized the control event handler")
+        sim_event = mp.Event()
+        log.debug("Initialized the simulation event handler")
+
+        sim.set_async(control_queue, control_event, sim_event)
+        controller = ControllerProcess(log_q, control_queue, control_event, sim_event)
+        controller.start()
+
     log.info("Starting the simulation...")
-    sim.start()
-    """
-    simulation_config = read_config(SIMULATION_CONFIG)
-    sim = Simulation(simulation_config)
+    try:
+        sim.start()
+    except Exception:
+        pass
+    controller.terminate()
 
-    env_config = read_config(ENVIRONMENT_CONFIG)
-
-    agents_config = read_config(AGENTS_CONFIG)
-
-    sim.set_env(env_config)
-    sim.set_agents(agents_config)
-
-    vehicle = sim.get_vehicle()
-
-    controller = Controller(vehicle)
-
-    controller.start()
-
-    # Blocking operation
-    sim.start()
-    """
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Process some integers.')
@@ -76,46 +72,12 @@ def parse_args():
 
     return args
 
-def launch_logger(filepath):
-    import logging
-    import queue
-    from logging.handlers import QueueHandler, QueueListener
-    from datetime import datetime
-
-    # Get queue
-    q = queue.Queue(-1)
-
-    # Formatter
-    formatter = logging.Formatter('%(asctime)s - %(threadName)s - %(levelname)-8s: %(message)s')
-
-    # create file handler which logs even debug messages
-    fh = logging.FileHandler(filepath)
-    fh.setFormatter(formatter)
-    fh.setLevel(logging.DEBUG)
-    
-    # create console handler with a higher log level
-    ch = logging.StreamHandler()
-    ch.setFormatter(formatter)
-    ch.setLevel(logging.INFO)
-    
-    # Start queue listener using the stream handler above
-    ql = QueueListener(q, fh, ch, respect_handler_level=True)
-    ql.start()
-
-    # Create log and set handler to queue handle
-    log = logging.getLogger('simulation')
-    log.setLevel(logging.DEBUG) # Log level = DEBUG
-    qh = QueueHandler(q)
-    log.addHandler(qh)
-
-    log.info('Initialized the logger')
-
-    return log, ql
 
 if __name__ == "__main__":
     try:
         args = parse_args()
-        log, ql = launch_logger(args.log)
+        q, ql = launch_logger_listener(args.log)
+        log = create_logger(q)
     except Exception as e:
         print("Was not able to launch a logger...")
         print(e)
@@ -123,7 +85,7 @@ if __name__ == "__main__":
     
     try:
         log.info(f"Parsed the console arguments: {args}")
-        main(args, log)
+        main(args, log, q)
         ql.stop()
     except Exception as e:
         log.error(e)

@@ -3,47 +3,51 @@ import os.path as path
 import cv2
 import lgsvl
 import time
+from logger import create_logger
 
+class BaseController:
+    def init(self):
+        self.k = 0
+        return {
+            "throttle": 1.0,
+            "braking": 0.0,
+            "steering": 0.0
+        }
+    
+    def execute(self, sensors, old_controls):
+        self.k += 1
+        return {
+            "throttle": 1.0 + (self.k * 0.01),
+            "braking": 0.0,
+            "steering": 0.0
+        }
 
-class Controller(multiprocessing.Process):
-    def __init__(self, conn):
+class ControllerProcess(multiprocessing.Process):
+    def __init__(self, log_q, queue, event_handler, sim_event_handler):
         super().__init__()
-        self.conn = conn
-        self.conn.connect()
-        self.vehicle = self.conn.get_vehicle()
-        print(self.vehicle.uid)
-        # print("UID:", vehicle.uid)
-        self.path = "/tmp"
+        self.log = create_logger(log_q, controller=True)
+        self.queue = queue
+        self.eventH = event_handler
+        self.eventH_sim = sim_event_handler
+        self.log.info("Initialized the controller")
+
+        self.controller = BaseController()
 
     def run(self):
-        print("Started the controller")
-        time.sleep(2)
-        self.conn.conn.reset()
-        print("Finished sleeping")
-        controls = lgsvl.VehicleControl()
+        old_controls = None
+        self.log.info("Starting the controller process...")
+        initial_controls = self.controller.init()
+        self.queue.put(initial_controls)
+        self.log.debug("Put initial controls to the queue")
         while True:
-            print("Loop")
-            image = None
-            print("Requesting sensors")
-            try:
-                sensors = self.vehicle.get_sensors()
-                print("Received sensors")
-                for sensor in sensors:
-                    print(sensor.name)
-                    if sensor.name == "Main Camera":
-                        image = self._get_image(sensor)
-            except Exception as e:
-                print(e)
-            if image:
-                print("Showing image")
-                cv2.imshow("Main Camera", image)
-                cv2.waitKey(1)
-
-            controls.throttle = 1
-            self.vehicle.apply_control(controls, True)
-
-    def _get_image(self, sensor):
-        PATH = path.join(self.path, sensor.name + ".png")
-        sensor.save(PATH, compression=0)
-        image = cv2.imread(PATH)
-        return image
+            self.log.debug("Setting the simulation event. Requesting sensor data and/or sending data.")
+            self.eventH_sim.set()
+            self.log.debug("Waiting for an event from the simulator")
+            while not self.eventH.is_set():
+                self.eventH.wait()
+            self.log.debug("Received an event from the simulator")
+            self.eventH.clear()
+            sensors = self.queue.get()
+            controls = self.controller.execute(sensors, old_controls)
+            old_controls = controls
+            self.queue.put(controls)

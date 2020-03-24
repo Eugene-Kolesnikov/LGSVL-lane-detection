@@ -1,5 +1,4 @@
 import lgsvl
-from connection import Connection
 import cv2
 from os import path
 import time
@@ -18,11 +17,8 @@ class Simulation:
         self.log.debug(f"Controller is '{'off' if self.no_control else 'on'}'")
         self.log.debug(f"Execution type: {'syncronous' if self.sync else 'asynchronous'}")
 
-        self.conn = Connection(connection_config.get("SIMULATOR_HOST"),
-                               connection_config.get("SIMULATOR_PORT"))
         self.log.debug("Connecting to {connection_config.get('SIMULATOR_HOST')}:{connection_config.get('SIMULATOR_PORT')}")
-        self.conn.connect()
-        self.sim = self.conn.simulation()
+        self.sim = lgsvl.Simulator(connection_config.get("SIMULATOR_HOST"), connection_config.get("SIMULATOR_PORT"))
         self.log.debug("Initialized the simulation")
         self.vehicle = None
 
@@ -32,6 +28,10 @@ class Simulation:
 
         self.video = None
         self.video_file = output
+
+        self.queue = None
+        self.eventH = None
+        self.eventH_control = None
 
     def set_env(self, env):
         # Set the map
@@ -79,6 +79,11 @@ class Simulation:
 
             POV.follow_closest_lane(True, MAX_POV_SPEED, False)
     
+    def set_async(self, queue, control_event_handler, event_handler):
+        self.queue = queue
+        self.eventH = event_handler
+        self.eventH_control = control_event_handler
+    
     def start(self):
         _TOTAL_TIME_ = self.parameters.get("execution_time")
         _EXECUTION_TIME_STEP_ = 0.1
@@ -94,7 +99,24 @@ class Simulation:
         self.log.debug("Starting the simulation loop...")
         curTime = 0
         self.start_time = time.time()
+        self.sim.run(0.01)
         while True:
+            new_controls = None
+            self.log.debug("Loading sensors from the server")
+            sensors = self._get_sensors()
+            self.log.debug("Loaded sensors from the server")
+            if not self.no_control:
+                new_controls = self._checkControlProcess(sensors)
+            
+            if new_controls:
+                controls = self._updateControls(controls, new_controls)
+                self.log.debug("Updating controls on the server")
+                self.vehicle.apply_control(controls, True)
+
+            frame = self._sensor_visualization(sensors, controls, curTime)
+            self._save_frame(frame)
+            self._visualize_frame(frame)
+
             self.log.debug(f"Running the simulation for {_EXECUTION_TIME_STEP_} seconds")
             self.sim.run(_EXECUTION_TIME_STEP_)
             curTime += _EXECUTION_TIME_STEP_
@@ -103,19 +125,35 @@ class Simulation:
                 self.log.info("Current execution time reached the limit. Quitting the simulation.")
                 self.log.info(f"The simulation took {time.time() - self.start_time} seconds")
                 break
-            self.log.debug("Loading sensors from the server")
-            sensors = self._get_sensors()
-            self.log.debug("Loaded sensors from the server")
-            if not self.no_control:
-                # Sending sensors to the controller
-                raise Exception("Automatic control is not implemented yet")
-            frame = self._sensor_visualization(sensors)
-            self._save_frame(frame)
-            self._visualize_frame(frame)
-            if not self.no_control:
-                # Receive controls
-                raise Exception("Automatic control is not implemented yet")
-            self.vehicle.apply_control(controls, True)
+
+    def _checkControlProcess(self, sensors):
+        new_controls = None
+        if self.sync:
+            # Waiting for the controller process to send event
+            self.log.debug("Waiting for an event from the control process")
+            self.eventH.wait()
+        if self.eventH.is_set():
+            self.log.debug("Received an event from the control process")
+            # The controller requested data and possibly returned controls.
+            self.log.debug("The queue is not empty. Extracting new controls.")
+            # The control queue is not empty: The control process returned controls.
+            new_controls = self.queue.get()
+            self.log.debug(f"Extracted controls: {new_controls}")
+            self.log.debug("Unsetting the simulation event flag")
+            self.eventH.clear()
+            self.log.info("Sending sensors to the controller")
+            self.queue.put(sensors)
+            self.log.debug("Setting the control process event")
+            self.eventH_control.set()
+            #sent_sensors = True
+        return new_controls#, sent_sensors
+
+    def _updateControls(self, controls, new_controls):
+        self.log.info("Updating controls for the simulation server")
+        controls.throttle = new_controls.get("throttle")
+        controls.braking = new_controls.get("braking")
+        controls.steering = new_controls.get("steering")
+        return controls
 
     def _on_collision(self, agent1, agent2, contact):
         if self.video:
@@ -126,7 +164,7 @@ class Simulation:
         ))
         if self.start_time:
             self.log.info(f"The simulation took {time.time() - self.start_time} seconds")
-        raise Exception("Stop simulation")
+        raise Exception("Emergency termination")
 
     def _get_sensors(self):
         sensors = {}
@@ -145,9 +183,11 @@ class Simulation:
         image = cv2.imread(PATH)
         return image
     
-    def _sensor_visualization(self, sensors):
+    def _sensor_visualization(self, sensors, controls, curTime):
         img = sensors.get("Main Camera")
+        img = self._add_time(img, curTime)
         img = self._add_speed(img, sensors.get("speed"))
+        img = self._add_controls(img, controls)
         return img
 
     def _save_frame(self, frame):
@@ -163,14 +203,38 @@ class Simulation:
         cv2.imshow("Simulation", frame)
         cv2.waitKey(1)
     
-    def _add_speed(self, img, speed):
+    def _add_time(self, img, curTime):
         font = cv2.FONT_HERSHEY_SIMPLEX
         bottomLeftCornerOfText = (10,50)
         fontScale = 1
         fontColor = (255,255,255)
         lineType = 2
 
+        cv2.putText(img,f"Time: {curTime}", bottomLeftCornerOfText, 
+            font, fontScale, fontColor, lineType)
+        
+        return img
+    
+    def _add_speed(self, img, speed):
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        bottomLeftCornerOfText = (10,100)
+        fontScale = 1
+        fontColor = (255,255,255)
+        lineType = 2
+
         cv2.putText(img,f"Speed: {speed}", bottomLeftCornerOfText, 
+            font, fontScale, fontColor, lineType)
+        
+        return img
+    
+    def _add_controls(self, img, controls):
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        bottomLeftCornerOfText = (10,150)
+        fontScale = 1
+        fontColor = (255,255,255)
+        lineType = 2
+
+        cv2.putText(img,f"Throttle: {controls.throttle}", bottomLeftCornerOfText, 
             font, fontScale, fontColor, lineType)
         
         return img
