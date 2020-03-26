@@ -5,22 +5,7 @@ import lgsvl
 import time
 from logger import create_logger
 
-class BaseController:
-    def init(self):
-        self.k = 0
-        return {
-            "throttle": 1.0,
-            "braking": 0.0,
-            "steering": 0.0
-        }
-    
-    def execute(self, sensors, old_controls):
-        self.k += 1
-        return {
-            "throttle": 1.0 + (self.k * 0.01),
-            "braking": 0.0,
-            "steering": 0.0
-        }
+from lane_detector import LaneDetector
 
 class ControllerProcess(multiprocessing.Process):
     def __init__(self, log_q, queue, event_handler, sim_event_handler):
@@ -31,7 +16,7 @@ class ControllerProcess(multiprocessing.Process):
         self.eventH_sim = sim_event_handler
         self.log.info("Initialized the controller")
 
-        self.controller = BaseController()
+        self.controller = LaneDetector(self.log)
 
     def run(self):
         old_controls = None
